@@ -1556,14 +1556,31 @@ export default function RetroLabView() {
   const [isDraggingSplit, setIsDraggingSplit] = useState<boolean>(false);
   const [isHoveringContainer, setIsHoveringContainer] = useState<boolean>(false);
 
+  // Refs for high-performance slider dragging (bypassing React re-renders)
+  const comparePctRef = useRef<number>(50);
+  const splitContainerRef = useRef<HTMLDivElement>(null);
+  const splitDividerRef = useRef<HTMLDivElement>(null);
+  const splitHandleRef = useRef<HTMLDivElement>(null);
+  const splitTextRef = useRef<HTMLSpanElement>(null);
+  const splitInputRef = useRef<HTMLInputElement>(null);
+
   // Global event listeners to handle smooth dragging when mouse leaves the image container
   useEffect(() => {
+    const updateDOM = (pct: number) => {
+      comparePctRef.current = pct;
+      if (splitContainerRef.current) splitContainerRef.current.style.clipPath = `polygon(0 0, ${pct}% 0, ${pct}% 100%, 0 100%)`;
+      if (splitDividerRef.current) splitDividerRef.current.style.left = `${pct}%`;
+      if (splitHandleRef.current) splitHandleRef.current.style.left = `${pct}%`;
+      if (splitTextRef.current) splitTextRef.current.innerText = `${Math.round(pct)}%`;
+      if (splitInputRef.current) splitInputRef.current.value = pct.toString();
+    };
+
     const handleGlobalMouseMove = (e: MouseEvent) => {
       if (!isDraggingSplit || !containerRef.current) return;
       const rect = containerRef.current.getBoundingClientRect();
       const x = e.clientX - rect.left;
       const pct = Math.min(100, Math.max(0, (x / rect.width) * 100));
-      setCompareSplit(pct);
+      updateDOM(pct);
     };
 
     const handleGlobalTouchMove = (e: TouchEvent) => {
@@ -1571,11 +1588,14 @@ export default function RetroLabView() {
       const rect = containerRef.current.getBoundingClientRect();
       const x = e.touches[0].clientX - rect.left;
       const pct = Math.min(100, Math.max(0, (x / rect.width) * 100));
-      setCompareSplit(pct);
+      updateDOM(pct);
     };
 
     const handleGlobalMouseUp = () => {
-      setIsDraggingSplit(false);
+      if (isDraggingSplit) {
+        setCompareSplit(comparePctRef.current);
+        setIsDraggingSplit(false);
+      }
     };
 
     if (isDraggingSplit) {
@@ -1600,6 +1620,7 @@ export default function RetroLabView() {
     const x = clientX - rect.left;
     const pct = Math.min(100, Math.max(0, (x / rect.width) * 100));
     setCompareSplit(pct);
+    comparePctRef.current = pct;
     setIsDraggingSplit(true);
   };
 
@@ -5629,6 +5650,7 @@ export default function RetroLabView() {
                   />
                   {/* Processed image clipped by compareSplit range */}
                   <div 
+                    ref={splitContainerRef}
                     className="absolute inset-0 flex items-center justify-center pointer-events-none"
                     style={{ 
                       clipPath: `polygon(0 0, ${compareSplit}% 0, ${compareSplit}% 100%, 0 100%)`
@@ -5682,12 +5704,14 @@ export default function RetroLabView() {
               <>
                 {/* Vertical Divider line */}
                 <div 
+                  ref={splitDividerRef}
                   className="absolute top-0 bottom-0 w-[2px] bg-brand-cream/80 z-25 pointer-events-none shadow-[0_0_8px_rgba(255,253,240,0.5)]"
                   style={{ left: `${compareSplit}%` }}
                 />
                 
                 {/* Drag Handle button */}
                 <div 
+                  ref={splitHandleRef}
                   className={`absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-8 h-8 rounded-full bg-brand-charcoal border-2 border-brand-cream flex items-center justify-center shadow-[0_0_12px_rgba(0,0,0,0.5),_0_0_4px_rgba(255,253,240,0.2)] z-30 transition-transform select-none ${
                     isDraggingSplit ? 'scale-115 border-brand-cream' : 'hover:scale-105 border-brand-cream/80'
                   }`}
@@ -5719,13 +5743,18 @@ export default function RetroLabView() {
                   onTouchStart={(e) => e.stopPropagation()}
                 >
                   <span className="font-mono text-[8px] text-brand-cream/50 uppercase">Split:</span>
-                  <span className="font-mono text-[9px] text-brand-cream font-bold w-7 text-right">{Math.round(compareSplit)}%</span>
+                  <span ref={splitTextRef} className="font-mono text-[9px] text-brand-cream font-bold w-7 text-right">{Math.round(compareSplit)}%</span>
                   <input 
+                    ref={splitInputRef}
                     type="range"
                     min="0"
                     max="100"
-                    value={compareSplit}
-                    onChange={(e) => setCompareSplit(parseInt(e.target.value))}
+                    defaultValue={compareSplit}
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value);
+                      setCompareSplit(val);
+                      comparePctRef.current = val;
+                    }}
                     className="w-20 h-1 accent-brand-cream cursor-ew-resize bg-brand-dark rounded-lg appearance-none"
                   />
                 </div>
