@@ -2,5 +2,5 @@
   "name": "Pixel Art Gallery",
   "description": "A quiet, modern, and neutral-colored portfolio gallery for custom pixel arts and community submissions.",
   "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "majorCapabilities": []
 }

@@ -33,7 +33,7 @@ export default function ProfileView({
   // Creator toggle tools
   const [showEditor, setShowEditor] = useState(false);
 
-  const generateAIBio = () => {
+  const generateRandomBio = () => {
     setIsGeneratingBio(true);
     setTimeout(() => {
       const bios = [
@@ -144,7 +144,7 @@ export default function ProfileView({
             <div className="border-t border-brand-cream/10 pt-3 space-y-2 font-mono text-[10px] text-brand-cream/50">
               <p>✔ Instant drawing board integration</p>
               <p>✔ Royalties simulator tracking saves</p>
-              <p>✔ Custom AI retro biography generator</p>
+              <p>✔ Custom random retro biography generator</p>
             </div>
           </motion.div>
 
@@ -189,7 +189,7 @@ export default function ProfileView({
                 <label className="block font-mono text-[9px] text-brand-cream/50">CREATOR BIOGRAPHY (MAX 160 CHARS)</label>
                 <button
                   type="button"
-                  onClick={generateAIBio}
+                  onClick={generateRandomBio}
                   disabled={isGeneratingBio}
                   className="text-yellow-400 hover:text-yellow-300 font-pixel text-[8px] flex items-center gap-1 cursor-pointer"
                 >
