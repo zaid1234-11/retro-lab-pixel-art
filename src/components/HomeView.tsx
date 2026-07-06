@@ -313,7 +313,7 @@ export default function HomeView({
               transition={{ duration: 1, delay: 0.2 }}
               className="font-sans font-bold text-4xl md:text-5xl tracking-tight leading-tight mb-4"
             >
-              Downgrade Reality. <br />
+              <span className="text-brand-red">Downgrade Reality.</span> <br />
               <span className="bg-gradient-to-r from-[#E34A53] via-yellow-500 to-[#E34A53] bg-clip-text text-transparent animate-gradient-x bg-[length:200%_auto]">
                 Instant Retro Masterpieces.
               </span>
