@@ -111,6 +111,7 @@ export default function App() {
             onNavigateToProfile={() => setCurrentView('profile')}
             onToggleFavorite={handleToggleFavorite}
             savedArtIds={savedArtIds}
+            onNavigateToLab={() => setCurrentView('retro-lab')}
           />
         )}
 

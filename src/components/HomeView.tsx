@@ -161,6 +161,7 @@ interface HomeViewProps {
   onNavigateToProfile: () => void;
   onToggleFavorite: (artId: string) => void;
   savedArtIds: string[];
+  onNavigateToLab: () => void;
 }
 
 export default function HomeView({
@@ -170,7 +171,8 @@ export default function HomeView({
   onNavigateToContests,
   onNavigateToProfile,
   onToggleFavorite,
-  savedArtIds
+  savedArtIds,
+  onNavigateToLab
 }: HomeViewProps) {
   const [likesCount, setLikesCount] = useState<number>(featuredArt.likes);
   const [hasLiked, setHasLiked] = useState<boolean>(false);
@@ -303,33 +305,45 @@ export default function HomeView({
           >
             <div className="flex items-center gap-2 mb-3">
               <span className="inline-block w-2 h-2 rounded-full bg-brand-red animate-pulse" />
-              <span className="font-mono text-[9px] uppercase tracking-widest text-brand-cream/60">Creative Sandbox & Hub</span>
+              <span className="font-mono text-[9px] uppercase tracking-widest text-brand-cream/60">Advanced Image Processing Engine</span>
             </div>
-            <h1 className="font-sans font-bold text-3xl md:text-4xl text-brand-cream tracking-tight leading-tight mb-4">
-              Explore and Craft <br />
-              <span className="text-brand-cream/80">Premium Retro Pixel Art</span>
-            </h1>
-            <p className="font-sans text-xs sm:text-sm leading-relaxed text-brand-cream/70 max-w-xl">
-              Welcome to the internet's premier independent pixel art showcase and playground. 
-              Discover curated retro assets, customize your images with high-performance filters, 
-              or join our creator program to publish and share your own work.
-            </p>
+            <motion.h1 
+              initial={{ opacity: 0, filter: 'blur(10px)' }}
+              animate={{ opacity: 1, filter: 'blur(0px)' }}
+              transition={{ duration: 1, delay: 0.2 }}
+              className="font-sans font-bold text-4xl md:text-5xl tracking-tight leading-tight mb-4"
+            >
+              Downgrade Reality. <br />
+              <span className="bg-gradient-to-r from-[#E34A53] via-yellow-500 to-[#E34A53] bg-clip-text text-transparent animate-gradient-x bg-[length:200%_auto]">
+                Instant Retro Masterpieces.
+              </span>
+            </motion.h1>
+            <motion.p 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: 1, delay: 0.4 }}
+              className="font-sans text-xs sm:text-sm leading-relaxed text-brand-cream/70 max-w-xl"
+            >
+              Welcome to the internet's premier offline-first pixel processing engine. 
+              Instantly downgrade high-fidelity modern images into gorgeous retro formats, custom pixel art, and digital glitch matrices—directly in your browser at 60 FPS.
+            </motion.p>
           </motion.div>
 
-          <div className="flex flex-wrap gap-3 md:self-end font-pixel text-[9px] mt-2 md:mt-0">
+          <div className="flex flex-col sm:flex-row flex-wrap gap-3 md:self-end font-pixel text-[9px] mt-6 md:mt-0">
             <motion.button
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
-              onClick={onNavigateToProfile}
-              className="px-5 py-3 bg-brand-red text-brand-cream hover:bg-brand-red-hover font-bold rounded-lg shadow-md border border-brand-red-dark transition-all cursor-pointer uppercase tracking-wider"
+              onClick={onNavigateToLab}
+              className="px-6 py-4 bg-brand-red text-brand-cream hover:bg-brand-red-hover font-bold rounded-lg shadow-[0_0_15px_rgba(227,74,83,0.5)] border border-brand-red-dark transition-all cursor-pointer uppercase tracking-wider flex items-center justify-center gap-2"
             >
-              become an author
+              <Cpu className="w-4 h-4" />
+              LAUNCH RETROLAB
             </motion.button>
             <motion.button
               whileHover={{ scale: 1.05, backgroundColor: 'rgba(250, 246, 242, 0.1)' }}
               whileTap={{ scale: 0.95 }}
               onClick={() => onNavigateToGallery()}
-              className="px-5 py-3 border border-brand-cream/20 text-brand-cream hover:border-brand-cream/40 font-bold rounded-lg transition-all cursor-pointer uppercase tracking-wider"
+              className="px-5 py-3 flex items-center justify-center border border-brand-cream/20 text-brand-cream hover:border-brand-cream/40 font-bold rounded-lg transition-all cursor-pointer uppercase tracking-wider"
             >
               go to gallery
             </motion.button>
