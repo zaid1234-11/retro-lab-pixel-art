@@ -1,0 +1,60 @@
+@import url('https://fonts.googleapis.com/css2?family=Silkscreen:wght@400;700&family=JetBrains+Mono:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-pixel: "Silkscreen", "Courier New", monospace;
+  --font-mono: "JetBrains Mono", "Courier New", monospace;
+  --font-sans: "Space Grotesk", "Inter", sans-serif;
+
+  --color-brand-cream: #FAF6F2;
+  --color-brand-charcoal: #1C1C1F;
+  --color-brand-grey: #2C2C2F;
+  --color-brand-dark: #121214;
+  --color-brand-light: #FFFFFF;
+  --color-brand-red: #9B3135;
+  --color-brand-red-hover: #C04247;
+  --color-brand-red-dark: #761E21;
+}
+
+/* Custom styles for retro/pixel aesthetic */
+@layer base {
+  body {
+    background-color: var(--color-brand-dark);
+    color: var(--color-brand-cream);
+    font-family: var(--font-sans);
+  }
+}
+
+/* Scrollbar styles to match the retro look */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: var(--color-brand-charcoal);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-brand-cream);
+  border: 2px solid var(--color-brand-charcoal);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #d4d4af;
+}
+
+/* Retro scanning lines filter */
+.retro-scanlines {
+  position: relative;
+  overflow: hidden;
+}
+.retro-scanlines::before {
+  content: " ";
+  display: block;
+  position: absolute;
+  top: 0; left: 0; bottom: 0; right: 0;
+  background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
+  z-index: 10;
+  background-size: 100% 4px, 6px 100%;
+  pointer-events: none;
+  opacity: 0.4;
+}
+
