@@ -7,6 +7,11 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { PixelArt } from '../types';
+import { EFFECT_CAPABILITIES } from '../types/effectRenderer';
+import { MatrixSettings, DEFAULT_MATRIX_SETTINGS } from '../types/matrix';
+import { renderMatrixRain, exportMatrixTXT, resetMatrixAnimation } from '../effects/matrixRainRenderer';
+import { downloadTXT, charGridToTXT } from '../exports/txtExporter';
+import { downloadSVG, exportDotsSVG, exportHalftoneSVG, exportContourSVG, exportCrosshatchSVG, exportVoronoiSVG } from '../exports/svgExporter';
 
 // Preset sample images for quick testing
 const SAMPLE_IMAGES = [
@@ -1012,7 +1017,7 @@ export default function RetroLabView() {
   const [selectedImage, setSelectedImage] = useState<string>(SAMPLE_IMAGES[0].url);
   const [imageLoaded, setImageLoaded] = useState<boolean>(false);
   const [activeEffect, setActiveEffect] = useState<string>('dithering');
-  const [compareMode, setCompareMode] = useState<boolean>(false);
+  const [previewMode, setPreviewMode] = useState<string>('processed'); // 'processed' | 'original' | 'split-vertical' | 'split-horizontal'
   const [compareSplit, setCompareSplit] = useState<number>(50); // percentage slider
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(false);
@@ -1208,6 +1213,11 @@ export default function RetroLabView() {
   const [exportFormat, setExportFormat] = useState<string>('png');
   const [exportScale, setExportScale] = useState<number>(1); // 1x, 2x, 4x, 8x upscaling for crisp pixel rendering
 
+  const [matrixSettings, setMatrixSettings] = useState<MatrixSettings>(DEFAULT_MATRIX_SETTINGS);
+  const matrixCharGridRef = useRef<any>(null); // To store the matrix char grid for TXT export
+  const asciiCharGridRef = useRef<any>(null); // To store ASCII grid for TXT export
+  const matrixFrameCountRef = useRef<number>(0);
+
   // Canvas Refs
   const sourceCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const outputCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -1257,7 +1267,7 @@ export default function RetroLabView() {
     voronoiCellSize, voronoiEdgeWidth, voronoiEdgeColor, voronoiColorMode, voronoiRandomize, voronoiBrightness, voronoiContrast,
     vhsDistortion, vhsNoise, vhsColorBleed, vhsScanlines, vhsTrackingError, vhsBrightness, vhsContrast,
     bloomEnabled, grainEnabled, grainIntensity, grainSize, grainSpeed, scanlinesEnabled, vignetteEnabled, crtCurveEnabled, phosphorEnabled,
-    activeEffect
+    activeEffect, matrixSettings
   });
 
   const restoreState = (state: any) => {
@@ -1411,6 +1421,7 @@ export default function RetroLabView() {
     if (state.crtCurveEnabled !== undefined) setCrtCurveEnabled(state.crtCurveEnabled);
     if (state.phosphorEnabled !== undefined) setPhosphorEnabled(state.phosphorEnabled);
     if (state.activeEffect !== undefined) setActiveEffect(state.activeEffect);
+    if (state.matrixSettings !== undefined) setMatrixSettings(state.matrixSettings);
   };
 
   // Push initial state once loadedImage is set
@@ -1489,7 +1500,7 @@ export default function RetroLabView() {
     noiseType, noiseScale, noiseIntensity, noiseOctaves, noiseSpeed, noiseAnimate, noiseDistortOnly, noiseBrightness, noiseContrast,
     voronoiCellSize, voronoiEdgeWidth, voronoiEdgeColor, voronoiColorMode, voronoiRandomize, voronoiBrightness, voronoiContrast,
     vhsDistortion, vhsNoise, vhsColorBleed, vhsScanlines, vhsTrackingError, vhsBrightness, vhsContrast,
-    activeEffect
+    activeEffect, matrixSettings
   ]);
 
   const undo = () => {
@@ -1568,9 +1579,29 @@ export default function RetroLabView() {
   useEffect(() => {
     const updateDOM = (pct: number) => {
       comparePctRef.current = pct;
-      if (splitContainerRef.current) splitContainerRef.current.style.clipPath = `polygon(0 0, ${pct}% 0, ${pct}% 100%, 0 100%)`;
-      if (splitDividerRef.current) splitDividerRef.current.style.left = `${pct}%`;
-      if (splitHandleRef.current) splitHandleRef.current.style.left = `${pct}%`;
+      if (splitContainerRef.current) {
+        splitContainerRef.current.style.clipPath = previewMode === 'split-vertical' 
+          ? `polygon(0 0, ${pct}% 0, ${pct}% 100%, 0 100%)`
+          : `polygon(0 0, 100% 0, 100% ${pct}%, 0 ${pct}%)`;
+      }
+      if (splitDividerRef.current) {
+        if (previewMode === 'split-vertical') {
+          splitDividerRef.current.style.left = `${pct}%`;
+          splitDividerRef.current.style.top = '';
+        } else {
+          splitDividerRef.current.style.top = `${pct}%`;
+          splitDividerRef.current.style.left = '';
+        }
+      }
+      if (splitHandleRef.current) {
+        if (previewMode === 'split-vertical') {
+          splitHandleRef.current.style.left = `${pct}%`;
+          splitHandleRef.current.style.top = '50%';
+        } else {
+          splitHandleRef.current.style.top = `${pct}%`;
+          splitHandleRef.current.style.left = '50%';
+        }
+      }
       if (splitTextRef.current) splitTextRef.current.innerText = `${Math.round(pct)}%`;
       if (splitInputRef.current) splitInputRef.current.value = pct.toString();
     };
@@ -1578,17 +1609,32 @@ export default function RetroLabView() {
     const handleGlobalMouseMove = (e: MouseEvent) => {
       if (!isDraggingSplit || !containerRef.current) return;
       const rect = containerRef.current.getBoundingClientRect();
-      const x = e.clientX - rect.left;
-      const pct = Math.min(100, Math.max(0, (x / rect.width) * 100));
-      updateDOM(pct);
+      
+      if (previewMode === 'split-vertical') {
+        const x = e.clientX - rect.left;
+        const pct = Math.min(100, Math.max(0, (x / rect.width) * 100));
+        updateDOM(pct);
+      } else if (previewMode === 'split-horizontal') {
+        const y = e.clientY - rect.top;
+        const pct = Math.min(100, Math.max(0, (y / rect.height) * 100));
+        updateDOM(pct);
+      }
     };
-
+    
     const handleGlobalTouchMove = (e: TouchEvent) => {
       if (!isDraggingSplit || !containerRef.current || !e.touches[0]) return;
       const rect = containerRef.current.getBoundingClientRect();
-      const x = e.touches[0].clientX - rect.left;
-      const pct = Math.min(100, Math.max(0, (x / rect.width) * 100));
-      updateDOM(pct);
+      const touch = e.touches[0];
+      
+      if (previewMode === 'split-vertical') {
+        const x = touch.clientX - rect.left;
+        const pct = Math.min(100, Math.max(0, (x / rect.width) * 100));
+        updateDOM(pct);
+      } else if (previewMode === 'split-horizontal') {
+        const y = touch.clientY - rect.top;
+        const pct = Math.min(100, Math.max(0, (y / rect.height) * 100));
+        updateDOM(pct);
+      }
     };
 
     const handleGlobalMouseUp = () => {
@@ -1611,29 +1657,141 @@ export default function RetroLabView() {
       window.removeEventListener('mouseup', handleGlobalMouseUp);
       window.removeEventListener('touchend', handleGlobalMouseUp);
     };
-  }, [isDraggingSplit]);
+  }, [isDraggingSplit, previewMode]);
 
   const handleContainerMouseDownOrTouch = (e: React.MouseEvent<HTMLDivElement> | React.TouchEvent<HTMLDivElement>) => {
-    if (!compareMode || !containerRef.current) return;
+    if (!previewMode.startsWith('split') || !containerRef.current) return;
     const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
     const rect = containerRef.current.getBoundingClientRect();
-    const x = clientX - rect.left;
-    const pct = Math.min(100, Math.max(0, (x / rect.width) * 100));
+    
+    let pct;
+    if (previewMode === 'split-vertical') {
+      const x = clientX - rect.left;
+      pct = Math.min(100, Math.max(0, (x / rect.width) * 100));
+    } else {
+      const y = clientY - rect.top;
+      pct = Math.min(100, Math.max(0, (y / rect.height) * 100));
+    }
+    
     setCompareSplit(pct);
     comparePctRef.current = pct;
+    
+    // Explicitly update DOM to avoid waiting for state if needed
+    if (splitContainerRef.current) {
+      splitContainerRef.current.style.clipPath = previewMode === 'split-vertical' 
+        ? `polygon(0 0, ${pct}% 0, ${pct}% 100%, 0 100%)`
+        : `polygon(0 0, 100% 0, 100% ${pct}%, 0 ${pct}%)`;
+    }
+    if (splitDividerRef.current) {
+      if (previewMode === 'split-vertical') {
+        splitDividerRef.current.style.left = `${pct}%`;
+        splitDividerRef.current.style.top = '';
+      } else {
+        splitDividerRef.current.style.top = `${pct}%`;
+        splitDividerRef.current.style.left = '';
+      }
+    }
+    if (splitHandleRef.current) {
+      if (previewMode === 'split-vertical') {
+        splitHandleRef.current.style.left = `${pct}%`;
+        splitHandleRef.current.style.top = '50%';
+      } else {
+        splitHandleRef.current.style.top = `${pct}%`;
+        splitHandleRef.current.style.left = '50%';
+      }
+    }
+
     setIsDraggingSplit(true);
   };
 
+  const handleContainerDoubleClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!previewMode.startsWith('split')) return;
+    setCompareSplit(50);
+    comparePctRef.current = 50;
+    
+    // Explicitly update DOM
+    if (splitContainerRef.current) {
+      splitContainerRef.current.style.clipPath = previewMode === 'split-vertical' 
+        ? `polygon(0 0, 50% 0, 50% 100%, 0 100%)`
+        : `polygon(0 0, 100% 0, 100% 50%, 0 50%)`;
+    }
+    if (splitDividerRef.current) {
+      if (previewMode === 'split-vertical') {
+        splitDividerRef.current.style.left = '50%';
+        splitDividerRef.current.style.top = '';
+      } else {
+        splitDividerRef.current.style.top = '50%';
+        splitDividerRef.current.style.left = '';
+      }
+    }
+    if (splitHandleRef.current) {
+      if (previewMode === 'split-vertical') {
+        splitHandleRef.current.style.left = '50%';
+        splitHandleRef.current.style.top = '50%';
+      } else {
+        splitHandleRef.current.style.top = '50%';
+        splitHandleRef.current.style.left = '50%';
+      }
+    }
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (!compareMode) return;
-    if (e.key === 'ArrowLeft') {
+    if (!previewMode.startsWith('split')) return;
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
       e.preventDefault();
       setCompareSplit(prev => Math.max(0, prev - 1));
-    } else if (e.key === 'ArrowRight') {
+    } else if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
       e.preventDefault();
       setCompareSplit(prev => Math.min(100, prev + 1));
     }
   };
+
+  // Global Keyboard Shortcuts
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      // Don't trigger if user is typing in an input
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      
+      const key = e.key.toLowerCase();
+      if (key === ' ') {
+        e.preventDefault();
+        setPreviewMode(prev => prev === 'original' ? 'processed' : 'original');
+      } else if (key === 'v') {
+        setPreviewMode('split-vertical');
+      } else if (key === 'h') {
+        setPreviewMode('split-horizontal');
+      } else if (key === 'r') {
+        if (previewMode.startsWith('split')) {
+          setCompareSplit(50);
+          comparePctRef.current = 50;
+          
+          // Explicitly update DOM to snap immediately
+          if (splitContainerRef.current) {
+            splitContainerRef.current.style.clipPath = previewMode === 'split-vertical' 
+              ? `polygon(0 0, 50% 0, 50% 100%, 0 100%)`
+              : `polygon(0 0, 100% 0, 100% 50%, 0 50%)`;
+          }
+          if (splitDividerRef.current) {
+            if (previewMode === 'split-vertical') {
+              splitDividerRef.current.style.left = '50%';
+              splitDividerRef.current.style.top = '';
+            } else {
+              splitDividerRef.current.style.top = '50%';
+              splitDividerRef.current.style.left = '';
+            }
+          }
+          if (splitHandleRef.current) {
+            splitHandleRef.current.style.left = '50%';
+            splitHandleRef.current.style.top = '50%';
+          }
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+  }, [previewMode]);
 
   // Sidebar menus
   const [sidebarExpanded, setSidebarExpanded] = useState<Record<string, boolean>>({
@@ -2156,7 +2314,10 @@ export default function RetroLabView() {
         else if (asciiCharSet === 'SYMBOLS') charList = " !@#$%^&*()_+{}|:<>?[]\\;',./";
         else if (asciiCharSet === 'CUSTOM') charList = "@%#*+=-:. ";
 
+        const currentAsciiGrid: string[][] = [];
+
         for (let y = 0; y < height; y += spacingY) {
+          const gridRow: string[] = [];
           for (let x = 0; x < width; x += spacingX) {
             const rX = Math.floor(x);
             const rY = Math.floor(y);
@@ -2206,6 +2367,7 @@ export default function RetroLabView() {
             const gray = 0.299 * avgR + 0.587 * avgG + 0.114 * avgB;
             const charIndex = Math.floor((gray / 255) * (charList.length - 1));
             const char = charList[charIndex] || ' ';
+            gridRow.push(char);
 
             let charColor = `rgb(${Math.round(avgR)}, ${Math.round(avgG)}, ${Math.round(avgB)})`;
             if (asciiColorMode === 'Mono') {
@@ -2218,7 +2380,9 @@ export default function RetroLabView() {
             outCtx.fillStyle = charColor;
             outCtx.fillText(char, x, y + charScale);
           }
+          currentAsciiGrid.push(gridRow);
         }
+        asciiCharGridRef.current = currentAsciiGrid;
       } else if (activeEffect === 'halftone') {
         // Halftone Grid Screen Renderer
         outCtx.fillStyle = halftoneBackground;
@@ -3195,6 +3359,16 @@ export default function RetroLabView() {
           }
         }
         outCtx.putImageData(outData, 0, 0);
+      } else if (activeEffect === 'matrix-rain') {
+        const { charGrid } = renderMatrixRain(
+          outCtx,
+          srcCanvas,
+          width,
+          height,
+          matrixSettings,
+          matrixFrameCountRef.current
+        );
+        matrixCharGridRef.current = charGrid;
       }
 
     // Stop processing spinner
@@ -3254,10 +3428,62 @@ export default function RetroLabView() {
     }
   }, [activeEffect, noiseAnimate, loadedImage]);
 
+  // Matrix Rain animation loop
+  useEffect(() => {
+    if (activeEffect === 'matrix-rain' && (matrixSettings.animate || matrixSettings.fallingMode) && loadedImage) {
+      let animId: number;
+      const tick = () => {
+        matrixFrameCountRef.current++;
+        processImage();
+        animId = requestAnimationFrame(tick);
+      };
+      animId = requestAnimationFrame(tick);
+      return () => {
+        cancelAnimationFrame(animId);
+      };
+    }
+  }, [activeEffect, matrixSettings.animate, matrixSettings.fallingMode, loadedImage]);
+
   // Handle high quality download of processed canvas
   const triggerDownload = () => {
     const canvas = outputCanvasRef.current;
     if (!canvas) return;
+
+    if (exportFormat === 'txt') {
+      if (activeEffect === 'matrix-rain' && matrixCharGridRef.current) {
+        const txt = exportMatrixTXT(matrixCharGridRef.current);
+        downloadTXT(txt, 'retrolab_matrix.txt');
+      } else if (activeEffect === 'ascii' && asciiCharGridRef.current) {
+        const txt = asciiCharGridRef.current.map((row: string[]) => row.join('')).join('\n');
+        downloadTXT(txt, 'retrolab_ascii.txt');
+      }
+      return;
+    }
+
+    if (exportFormat === 'svg') {
+      const srcCanvas = sourceCanvasRef.current;
+      if (!srcCanvas) return;
+      const w = srcCanvas.width;
+      const h = srcCanvas.height;
+      let svgData = '';
+
+      if (activeEffect === 'dots') {
+        svgData = exportDotsSVG(srcCanvas, w, h, { shape: dotsShape, spacing: dotsSpacing, size: dotsSize, colorMode: dotsColorMode, invert: dotsInvert });
+      } else if (activeEffect === 'halftone') {
+        svgData = exportHalftoneSVG(srcCanvas, w, h, { shape: halftoneShape, spacing: halftoneSpacing, dotScale: halftoneDotScale, angle: halftoneAngle, colorMode: halftoneColorMode, foreground: halftoneForeground, background: halftoneBackground });
+      } else if (activeEffect === 'contour') {
+        svgData = exportContourSVG(srcCanvas, w, h, { levels: contourLevels, lineThickness: contourLineThickness, colorMode: contourColorMode, invert: contourInvert });
+      } else if (activeEffect === 'crosshatch') {
+        svgData = exportCrosshatchSVG(srcCanvas, w, h, { density: crosshatchDensity, layers: crosshatchLayers, angle: crosshatchAngle, lineWidth: crosshatchLineWidth, randomness: crosshatchRandomness, lineColor: crosshatchLineColor, bgColor: crosshatchBgColor });
+      } else if (activeEffect === 'voronoi') {
+        svgData = exportVoronoiSVG(srcCanvas, w, h, { cellSize: voronoiCellSize, edgeWidth: voronoiEdgeWidth, edgeColor: voronoiEdgeColor, colorMode: voronoiColorMode, randomize: voronoiRandomize });
+      }
+      
+      if (svgData) {
+        downloadSVG(svgData, `retrolab_${activeEffect}.svg`);
+      }
+      return;
+    }
 
     // Create virtual canvas with higher resolution or download directly
     const dataUrl = canvas.toDataURL(`image/${exportFormat === 'jpg' ? 'jpeg' : exportFormat}`);
@@ -3364,7 +3590,8 @@ export default function RetroLabView() {
                 
                 {/* Unlocked & Locked Effects */}
                 {[
-                  { name: 'ASCII', label: 'ASCII', locked: false },
+                  { name: 'ascii', label: 'ASCII', locked: false },
+                  { name: 'matrix-rain', label: 'Matrix Rain', locked: false },
                   { name: 'halftone', label: 'Halftone', locked: false },
                   { name: 'blockify', label: 'Blockify', locked: false },
                   { name: 'dots', label: 'Dots', locked: false },
@@ -3513,7 +3740,7 @@ export default function RetroLabView() {
                   </>
                 )}
 
-                {activeEffect === 'ASCII' && (
+                {activeEffect === 'ascii' && (
                   <>
                     {/* Scale */}
                     <div className="flex flex-col gap-1">
@@ -3725,6 +3952,109 @@ export default function RetroLabView() {
                         onChange={(e) => setAsciiIntensity(parseFloat(e.target.value))}
                         className="accent-brand-cream cursor-pointer w-full bg-brand-dark h-1 rounded appearance-none"
                       />
+                    </div>
+                  </>
+                )}
+
+                {activeEffect === 'matrix-rain' && (
+                  <>
+                    <div className="flex flex-col gap-1">
+                      <label className="font-mono text-[9px] text-brand-cream/50 uppercase">Character Set</label>
+                      <select 
+                        value={matrixSettings.charSet}
+                        onChange={(e) => setMatrixSettings({ ...matrixSettings, charSet: e.target.value as any })}
+                        className="bg-brand-dark border border-brand-cream/15 text-brand-cream text-[11px] p-2 rounded focus:outline-none cursor-pointer font-mono"
+                      >
+                        <option value="binary">Binary</option>
+                        <option value="katakana">Katakana</option>
+                        <option value="ascii">ASCII</option>
+                        <option value="hex">Hex</option>
+                        <option value="custom">Custom</option>
+                      </select>
+                    </div>
+
+                    {matrixSettings.charSet === 'custom' && (
+                      <div className="flex flex-col gap-1 mt-1">
+                        <label className="font-mono text-[9px] text-brand-cream/50 uppercase">Custom Characters</label>
+                        <input
+                          type="text"
+                          value={matrixSettings.customChars || ''}
+                          onChange={(e) => setMatrixSettings({ ...matrixSettings, customChars: e.target.value })}
+                          className="bg-brand-dark border border-brand-cream/15 text-brand-cream text-[11px] p-2 rounded focus:outline-none font-mono"
+                          placeholder="e.g. 01@#"
+                        />
+                      </div>
+                    )}
+
+                    <div className="flex flex-col gap-0.5 mt-2">
+                      <div className="flex justify-between items-center font-mono text-[9px]">
+                        <span className="text-brand-cream/60 uppercase">Font Size</span>
+                        <span className="text-brand-cream font-bold">{matrixSettings.fontSize}</span>
+                      </div>
+                      <input 
+                        type="range" min="4" max="24" step="1" value={matrixSettings.fontSize}
+                        onChange={(e) => setMatrixSettings({ ...matrixSettings, fontSize: parseInt(e.target.value) })}
+                        className="accent-brand-cream cursor-pointer w-full bg-brand-dark h-1 rounded appearance-none"
+                      />
+                    </div>
+
+                    <div className="flex flex-col gap-0.5 mt-2">
+                      <div className="flex justify-between items-center font-mono text-[9px]">
+                        <span className="text-brand-cream/60 uppercase">Density</span>
+                        <span className="text-brand-cream font-bold">{(matrixSettings.density * 100).toFixed(0)}%</span>
+                      </div>
+                      <input 
+                        type="range" min="0.1" max="1.0" step="0.05" value={matrixSettings.density}
+                        onChange={(e) => setMatrixSettings({ ...matrixSettings, density: parseFloat(e.target.value) })}
+                        className="accent-brand-cream cursor-pointer w-full bg-brand-dark h-1 rounded appearance-none"
+                      />
+                    </div>
+
+                    <div className="flex items-center justify-between mt-3">
+                      <span className="text-brand-cream/65 uppercase text-[10px]">Colorize Output</span>
+                      <input 
+                        type="checkbox"
+                        checked={matrixSettings.colorize}
+                        onChange={(e) => setMatrixSettings({ ...matrixSettings, colorize: e.target.checked })}
+                        className="w-3.5 h-3.5 rounded border-brand-cream/30 text-brand-charcoal accent-brand-cream cursor-pointer"
+                      />
+                    </div>
+
+                    <div className="flex flex-col gap-2 p-2 border border-brand-cream/10 rounded bg-brand-dark/20 mt-3 select-none">
+                      <div className="flex items-center justify-between">
+                        <span className="text-brand-cream/65 uppercase text-[10px]">Animate Matrix</span>
+                        <input 
+                          type="checkbox"
+                          checked={matrixSettings.animate}
+                          onChange={(e) => setMatrixSettings({ ...matrixSettings, animate: e.target.checked })}
+                          className="w-3.5 h-3.5 rounded border-brand-cream/30 text-brand-charcoal accent-brand-cream cursor-pointer"
+                        />
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-brand-cream/65 uppercase text-[10px]">Falling Mode</span>
+                        <input 
+                          type="checkbox"
+                          checked={matrixSettings.fallingMode}
+                          onChange={(e) => {
+                            if (e.target.checked) resetMatrixAnimation();
+                            setMatrixSettings({ ...matrixSettings, fallingMode: e.target.checked });
+                          }}
+                          className="w-3.5 h-3.5 rounded border-brand-cream/30 text-brand-charcoal accent-brand-cream cursor-pointer"
+                        />
+                      </div>
+                      {(matrixSettings.animate || matrixSettings.fallingMode) && (
+                        <div className="flex flex-col gap-0.5 mt-2">
+                          <div className="flex justify-between items-center font-mono text-[9px]">
+                            <span className="text-brand-cream/60 uppercase">Speed</span>
+                            <span className="text-brand-cream font-bold">{matrixSettings.speed}</span>
+                          </div>
+                          <input 
+                            type="range" min="1" max="10" step="1" value={matrixSettings.speed}
+                            onChange={(e) => setMatrixSettings({ ...matrixSettings, speed: parseInt(e.target.value) })}
+                            className="accent-brand-cream cursor-pointer w-full bg-brand-dark h-1 rounded appearance-none"
+                          />
+                        </div>
+                      )}
                     </div>
                   </>
                 )}
@@ -5573,8 +5903,8 @@ export default function RetroLabView() {
                 
                 <div className="flex flex-col gap-1">
                   <label className="font-mono text-[9px] text-brand-cream/50 uppercase">Output Format</label>
-                  <div className="grid grid-cols-3 gap-1 text-[10px] font-mono">
-                    {['png', 'jpg', 'svg'].map((format) => (
+                  <div className="grid grid-cols-4 gap-1 text-[10px] font-mono">
+                    {['png', 'jpg'].map((format) => (
                       <button
                         key={format}
                         onClick={() => setExportFormat(format)}
@@ -5587,6 +5917,30 @@ export default function RetroLabView() {
                         .{format.toUpperCase()}
                       </button>
                     ))}
+                    {EFFECT_CAPABILITIES[activeEffect]?.supportsSVG && (
+                      <button
+                        onClick={() => setExportFormat('svg')}
+                        className={`py-1 text-center border rounded transition-all cursor-pointer ${
+                          exportFormat === 'svg' 
+                            ? 'bg-brand-cream text-brand-charcoal border-brand-cream font-bold' 
+                            : 'border-brand-cream/10 text-brand-cream/70 hover:bg-brand-dark/30'
+                        }`}
+                      >
+                        .SVG
+                      </button>
+                    )}
+                    {EFFECT_CAPABILITIES[activeEffect]?.supportsTXT && (
+                      <button
+                        onClick={() => setExportFormat('txt')}
+                        className={`py-1 text-center border rounded transition-all cursor-pointer ${
+                          exportFormat === 'txt' 
+                            ? 'bg-brand-cream text-brand-charcoal border-brand-cream font-bold' 
+                            : 'border-brand-cream/10 text-brand-cream/70 hover:bg-brand-dark/30'
+                        }`}
+                      >
+                        .TXT
+                      </button>
+                    )}
                   </div>
                 </div>
 
@@ -5611,7 +5965,7 @@ export default function RetroLabView() {
           <div 
             ref={containerRef}
             id="retro-stage-container"
-            tabIndex={compareMode ? 0 : undefined}
+            tabIndex={previewMode.startsWith('split') ? 0 : undefined}
             onKeyDown={handleKeyDown}
             onMouseEnter={() => setIsHoveringContainer(true)}
             onMouseLeave={() => {
@@ -5620,8 +5974,9 @@ export default function RetroLabView() {
             }}
             onMouseDown={handleContainerMouseDownOrTouch}
             onTouchStart={handleContainerMouseDownOrTouch}
+            onDoubleClick={handleContainerDoubleClick}
             className={`w-full aspect-[4/3] md:aspect-[16/10] bg-brand-dark border-2 border-brand-cream rounded-xl relative overflow-hidden flex items-center justify-center shadow-inner group select-none outline-none focus-within:ring-2 focus-within:ring-brand-cream/40 transition-all ${
-              compareMode ? 'cursor-ew-resize' : 'cursor-default'
+              previewMode.startsWith('split') ? (previewMode === 'split-vertical' ? 'cursor-ew-resize' : 'cursor-ns-resize') : 'cursor-default'
             }`}
             onDragOver={handleDragOver}
             onDrop={handleDrop}
@@ -5639,29 +5994,34 @@ export default function RetroLabView() {
             <div className={`w-full h-full flex items-center justify-center ${crtCurveEnabled ? 'scale-95 [transform:perspective(1000px)_rotateX(0deg)_rotateY(0deg)_scale(1.02)] [clip-path:ellipse(100%_100%_at_50%_50%)]' : ''}`}>
               
               {/* Display either compare split slider or active processed Canvas */}
-              {compareMode ? (
+              {/* Display either compare split slider or active processed Canvas */}
+              {previewMode !== 'processed' ? (
                 <div className="relative w-full h-full flex items-center justify-center">
                   {/* Original image underlay */}
                   <img 
                     src={selectedImage} 
                     alt="Original Source" 
-                    className="w-full h-full object-contain pointer-events-none select-none"
+                    className={`w-full h-full object-contain pointer-events-none select-none ${previewMode === 'original' ? 'z-30' : ''}`}
                     referrerPolicy="no-referrer"
                   />
                   {/* Processed image clipped by compareSplit range */}
-                  <div 
-                    ref={splitContainerRef}
-                    className="absolute inset-0 flex items-center justify-center pointer-events-none"
-                    style={{ 
-                      clipPath: `polygon(0 0, ${compareSplit}% 0, ${compareSplit}% 100%, 0 100%)`
-                    }}
-                  >
-                    <canvas 
-                      ref={outputCanvasRef} 
-                      className={`w-full h-full object-contain ${phosphorEnabled ? 'blur-[0.5px] saturate-125 brightness-110' : ''}`}
-                      style={{ imageRendering: 'pixelated' }}
-                    />
-                  </div>
+                  {previewMode.startsWith('split') && (
+                    <div 
+                      ref={splitContainerRef}
+                      className="absolute inset-0 flex items-center justify-center pointer-events-none z-20"
+                      style={{ 
+                        clipPath: previewMode === 'split-vertical' 
+                          ? `polygon(0 0, ${compareSplit}% 0, ${compareSplit}% 100%, 0 100%)`
+                          : `polygon(0 0, 100% 0, 100% ${compareSplit}%, 0 ${compareSplit}%)`
+                      }}
+                    >
+                      <canvas 
+                        ref={outputCanvasRef} 
+                        className={`w-full h-full object-contain ${phosphorEnabled ? 'blur-[0.5px] saturate-125 brightness-110' : ''}`}
+                        style={{ imageRendering: 'pixelated' }}
+                      />
+                    </div>
+                  )}
                 </div>
               ) : (
                 <canvas 
@@ -5761,7 +6121,7 @@ export default function RetroLabView() {
               </>
             )}
 
-            {!compareMode && (
+            {previewMode === 'processed' && (
               /* Visual floating tags indicating matrix layout */
               <div className="absolute top-4 left-4 font-mono text-[9px] bg-brand-charcoal/80 border border-brand-cream/20 px-2 py-1 text-brand-cream/70 rounded z-10 select-none uppercase">
                 GRID: {matrixSize} // {algorithm}
@@ -5784,17 +6144,36 @@ export default function RetroLabView() {
           {/* Quick comparator & file selection row */}
           <div className="bg-brand-charcoal border border-brand-cream/15 rounded-xl p-4 flex flex-col sm:flex-row justify-between items-center gap-4">
             
-            {/* Compare slider toggle */}
-            <div className="flex items-center gap-3.5 select-none">
-              <span className="font-pixel text-[10px] text-brand-cream/70 uppercase">Compare Split</span>
+            {/* Compare Mode Selector */}
+            <div className="flex items-center gap-2 select-none bg-brand-dark/50 p-1.5 rounded-lg border border-brand-cream/10 hidden md:flex">
+              <button 
+                onClick={() => setPreviewMode('processed')}
+                className={`px-3 py-1.5 text-[10px] font-mono rounded uppercase transition-colors ${previewMode === 'processed' ? 'bg-brand-cream text-brand-charcoal font-bold shadow' : 'text-brand-cream/60 hover:text-brand-cream hover:bg-brand-cream/5'}`}
+              >Processed</button>
+              <button 
+                onClick={() => setPreviewMode('original')}
+                className={`px-3 py-1.5 text-[10px] font-mono rounded uppercase transition-colors ${previewMode === 'original' ? 'bg-brand-cream text-brand-charcoal font-bold shadow' : 'text-brand-cream/60 hover:text-brand-cream hover:bg-brand-cream/5'}`}
+              >Original</button>
+              <button 
+                onClick={() => setPreviewMode('split-vertical')}
+                className={`px-3 py-1.5 text-[10px] font-mono rounded uppercase transition-colors ${previewMode === 'split-vertical' ? 'bg-brand-cream text-brand-charcoal font-bold shadow' : 'text-brand-cream/60 hover:text-brand-cream hover:bg-brand-cream/5'}`}
+              >Split (V)</button>
+              <button 
+                onClick={() => setPreviewMode('split-horizontal')}
+                className={`px-3 py-1.5 text-[10px] font-mono rounded uppercase transition-colors ${previewMode === 'split-horizontal' ? 'bg-brand-cream text-brand-charcoal font-bold shadow' : 'text-brand-cream/60 hover:text-brand-cream hover:bg-brand-cream/5'}`}
+              >Split (H)</button>
+            </div>
+            {/* Mobile simplified view */}
+            <div className="flex md:hidden items-center gap-3.5 select-none">
+              <span className="font-pixel text-[10px] text-brand-cream/70 uppercase">Preview</span>
               <button
-                onClick={() => setCompareMode(!compareMode)}
+                onClick={() => setPreviewMode(previewMode.startsWith('split') ? 'processed' : 'split-vertical')}
                 className={`w-12 h-6 rounded-full p-0.5 transition-all cursor-pointer border ${
-                  compareMode ? 'bg-brand-cream border-brand-cream' : 'bg-brand-dark/50 border-brand-cream/20'
+                  previewMode.startsWith('split') ? 'bg-brand-cream border-brand-cream' : 'bg-brand-dark/50 border-brand-cream/20'
                 }`}
               >
                 <div className={`w-5 h-5 rounded-full transition-all ${
-                  compareMode ? 'bg-brand-charcoal translate-x-6' : 'bg-brand-cream'
+                  previewMode.startsWith('split') ? 'bg-brand-charcoal translate-x-6' : 'bg-brand-cream'
                 }`} />
               </button>
             </div>
